@@ -11,23 +11,23 @@ app.use(express.json());
 // ─── CONFIG ───
 const SUPABASE_URL  = process.env.SUPABASE_URL || 'https://gyjjjigkpsqmtevfytgm.supabase.co';
 const SUPABASE_KEY  = process.env.SUPABASE_KEY;
-const LINKWISE_KEY  = process.env.LINKWISE_KEY;
 const SYNC_SECRET   = process.env.SYNC_SECRET || 'mikroutz-sync-2025';
 const PUBLISHER_ID  = 'CD28202';
 const LINKWISE_BASE = 'https://affiliate.linkwi.se/feeds/1.2';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// ─── LINKWISE FEED URL BUILDER ───
-const COLUMNS = 'product_name,category,brand_name,tracking_url,image_url,in_stock,on_sale,price,discount,description,store_name';
+// ─── FEEDS ───
+// Χρησιμοποιούμε proginc-0 για όλα τα joined programs
+// Columns ίδια με το παράδειγμα του dashboard
+const COLUMNS = 'product_name,category,brand_name,tracking_url,image_url,in_stock,on_sale,price,discount,size';
 
-function buildFeedUrl(progInc = '0', catInc = '0') {
-  return `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-${COLUMNS}/catinc-${catInc}/catex-0/proginc-${progInc}/progex-0/feed.json`;
-}
-
-// Ένα ενιαίο feed — όλα τα joined programs
 const FEEDS = [
-  { id: 'all', name: 'Παιδικά', url: buildFeedUrl('0', '0') },
+  {
+    id: 'all',
+    name: 'Παιδικά',
+    url: `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-${COLUMNS}/catinc-0/catex-0/proginc-0/progex-0/feed.json`,
+  },
 ];
 
 // ─── HELPERS ───
@@ -36,18 +36,15 @@ function fetchUrl(url) {
     const lib = url.startsWith('https') ? https : http;
     const chunks = [];
     const req = lib.get(url, {
-      timeout: 60000,
-      headers: {
-        'Authorization': `Bearer ${LINKWISE_KEY}`,
-        'User-Agent': 'mikroutz/1.0',
-      },
+      timeout: 90000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; mikroutz/1.0)' },
     }, res => {
-      console.log(`[fetch] HTTP ${res.statusCode} ← ${url.slice(0, 80)}...`);
+      console.log(`[fetch] HTTP ${res.statusCode} <- ${url.slice(0, 100)}`);
       res.on('data', chunk => chunks.push(chunk));
       res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     });
     req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout after 90s')); });
   });
 }
 
@@ -58,7 +55,7 @@ function parsePrice(val) {
 }
 
 function parseFeedItems(rawText, feedId, feedName) {
-  console.log(`[parse] Preview: ${rawText.slice(0, 300)}`);
+  console.log(`[parse] Length: ${rawText.length}, Preview: ${rawText.slice(0, 200)}`);
 
   let data;
   try { data = JSON.parse(rawText); }
@@ -70,7 +67,7 @@ function parseFeedItems(rawText, feedId, feedName) {
 
   console.log(`[parse] ${feedName}: ${items.length} raw items`);
 
-  return items.slice(0, 3000).map((item, idx) => {
+  return items.slice(0, 5000).map((item, idx) => {
     const title    = item.product_name || item.name || item.title || '';
     const link     = item.tracking_url || item.url || item.link || '';
     const image    = item.image_url || item.image || '';
@@ -96,10 +93,8 @@ function parseFeedItems(rawText, feedId, feedName) {
     }
     if (!store) store = feedName;
 
-    const feedIdStr = `${feedId}_${idx}_${title.slice(0, 15).replace(/\W/g, '')}`;
-
     return {
-      feed_id:     feedIdStr.slice(0, 200),
+      feed_id:     `${feedId}_${idx}_${title.slice(0, 15).replace(/\W/g, '')}`.slice(0, 200),
       title:       String(title).trim().slice(0, 500),
       description: String(desc).replace(/<[^>]*>/g, '').trim().slice(0, 1000),
       price,
@@ -129,7 +124,7 @@ app.post('/api/sync', async (req, res) => {
       const raw = await fetchUrl(feed.url);
 
       if (!raw.trim().startsWith('[') && !raw.trim().startsWith('{')) {
-        console.error(`[sync] Bad response:`, raw.slice(0, 200));
+        console.error(`[sync] Bad response:`, raw.slice(0, 300));
         results.push({ feed: feed.name, inserted: 0, error: 'Bad response: ' + raw.slice(0, 100) });
         continue;
       }
@@ -158,11 +153,12 @@ app.post('/api/sync', async (req, res) => {
   res.json({ ok: true, synced_at: new Date().toISOString(), results });
 });
 
-// ─── DEBUG — βλέπεις τι ακριβώς επιστρέφει το Linkwise ───
+// ─── DEBUG ───
 app.get('/api/feed-debug', async (req, res) => {
   if (req.headers['x-sync-secret'] !== SYNC_SECRET) return res.status(401).end();
   try {
-    const url = buildFeedUrl('0', '0');
+    const url = FEEDS[0].url;
+    console.log('[debug] Fetching:', url);
     const raw = await fetchUrl(url);
     res.json({ url, length: raw.length, preview: raw.slice(0, 2000) });
   } catch (err) {
