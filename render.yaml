@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: mikroutz-backend
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    plan: free
+    envVars:
+      - key: SUPABASE_URL
+        value: https://gyjjjigkpsqmtevfytgm.supabase.co
+      - key: SUPABASE_KEY
+        sync: false   # βάλε το manually στο Render dashboard
+      - key: LINKWISE_KEY
+        sync: false   # βάλε το manually στο Render dashboard
+      - key: SYNC_SECRET
+        sync: false   # βάλε ένα δικό σου secret string
