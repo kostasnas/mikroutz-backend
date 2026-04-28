@@ -14,19 +14,38 @@ const SUPABASE_KEY  = process.env.SUPABASE_KEY;
 const SYNC_SECRET   = process.env.SYNC_SECRET || 'mikroutz-sync-2025';
 const PUBLISHER_ID  = 'CD28202';
 const LINKWISE_BASE = 'https://affiliate.linkwi.se/feeds/1.2';
+const COLUMNS       = 'product_name,category,brand_name,tracking_url,image_url,in_stock,on_sale,price,discount,size';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// ─── FEEDS ───
-// Χρησιμοποιούμε proginc-0 για όλα τα joined programs
-// Columns ίδια με το παράδειγμα του dashboard
-const COLUMNS = 'product_name,category,brand_name,tracking_url,image_url,in_stock,on_sale,price,discount,size';
-
+// ─── FEEDS — ένα feed ανά κατάστημα/πρόγραμμα ───
+// Format proginc: programID-categoryID (categoryID=0 = όλες οι κατηγορίες)
 const FEEDS = [
   {
-    id: 'all',
-    name: 'Παιδικά',
-    url: `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-${COLUMNS}/catinc-0/catex-0/proginc-0/progex-0/feed.json`,
+    id: 'prog10784',
+    name: 'Lighthouse/Brands (Παιχνίδια & Βρεφικά)',
+    url: `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-${COLUMNS}/catinc-0/catex-0/proginc-10784-0/progex-0/feed.json`,
+  },
+  {
+    id: 'prog11307',
+    name: 'Lighthouse/Brands 2',
+    url: `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-${COLUMNS}/catinc-0/catex-0/proginc-11307-0/progex-0/feed.json`,
+  },
+  {
+    id: 'prog11428',
+    name: 'Mothercare',
+    url: `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-${COLUMNS}/catinc-0/catex-0/proginc-11428-0/progex-0/feed.json`,
+  },
+  {
+    id: 'prog11409',
+    name: 'Public',
+    url: `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-${COLUMNS}/catinc-0/catex-0/proginc-11409-0/progex-0/feed.json`,
+  },
+  // Fallback — όλα μαζί με το format του dashboard παραδείγματος
+  {
+    id: 'all_programs',
+    name: 'Όλα τα προγράμματα',
+    url: `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-${COLUMNS}/catinc-0/catex-0/proginc-10784-281,11307-622,11428-0,11409-0/progex-0/feed.json`,
   },
 ];
 
@@ -36,15 +55,15 @@ function fetchUrl(url) {
     const lib = url.startsWith('https') ? https : http;
     const chunks = [];
     const req = lib.get(url, {
-      timeout: 90000,
+      timeout: 120000,
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; mikroutz/1.0)' },
     }, res => {
-      console.log(`[fetch] HTTP ${res.statusCode} <- ${url.slice(0, 100)}`);
+      console.log(`[fetch] HTTP ${res.statusCode} <- ${url.slice(0, 120)}`);
       res.on('data', chunk => chunks.push(chunk));
       res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     });
     req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout after 90s')); });
+    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout after 120s')); });
   });
 }
 
@@ -55,7 +74,7 @@ function parsePrice(val) {
 }
 
 function parseFeedItems(rawText, feedId, feedName) {
-  console.log(`[parse] Length: ${rawText.length}, Preview: ${rawText.slice(0, 200)}`);
+  console.log(`[parse] ${feedName} - Length: ${rawText.length}, Preview: ${rawText.slice(0, 150)}`);
 
   let data;
   try { data = JSON.parse(rawText); }
@@ -81,7 +100,7 @@ function parseFeedItems(rawText, feedId, feedName) {
     const inStock  = item.in_stock === true || item.in_stock === 1
                   || item.in_stock === '1' || item.in_stock === 'true'
                   || item.in_stock === 'yes';
-    const desc = item.description || '';
+    const desc     = item.description || '';
 
     let store = item.store_name || item.merchant_name || '';
     if (!store && link) {
@@ -94,7 +113,7 @@ function parseFeedItems(rawText, feedId, feedName) {
     if (!store) store = feedName;
 
     return {
-      feed_id:     `${feedId}_${idx}_${title.slice(0, 15).replace(/\W/g, '')}`.slice(0, 200),
+      feed_id:     `${feedId}_${idx}_${title.slice(0,15).replace(/\W/g,'')}`.slice(0, 200),
       title:       String(title).trim().slice(0, 500),
       description: String(desc).replace(/<[^>]*>/g, '').trim().slice(0, 1000),
       price,
@@ -117,53 +136,61 @@ app.post('/api/sync', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const results = [];
-  for (const feed of FEEDS) {
-    try {
-      console.log(`[sync] Fetching: ${feed.url}`);
-      const raw = await fetchUrl(feed.url);
+  // Απάντα αμέσως και τρέχε το sync background
+  res.json({ ok: true, message: 'Sync started in background. Check /api/status for progress.' });
 
-      if (!raw.trim().startsWith('[') && !raw.trim().startsWith('{')) {
-        console.error(`[sync] Bad response:`, raw.slice(0, 300));
-        results.push({ feed: feed.name, inserted: 0, error: 'Bad response: ' + raw.slice(0, 100) });
-        continue;
-      }
+  (async () => {
+    for (const feed of FEEDS) {
+      try {
+        console.log(`[sync] Fetching: ${feed.url}`);
+        const raw = await fetchUrl(feed.url);
 
-      const items = parseFeedItems(raw, feed.id, feed.name);
-      if (!items.length) {
-        results.push({ feed: feed.name, inserted: 0, error: 'No items parsed' });
-        continue;
-      }
+        if (!raw.trim().startsWith('[') && !raw.trim().startsWith('{')) {
+          console.error(`[sync] Bad response for ${feed.name}:`, raw.slice(0, 200));
+          continue;
+        }
 
-      let inserted = 0;
-      for (let i = 0; i < items.length; i += 200) {
-        const { error } = await supabase
-          .from('products')
-          .upsert(items.slice(i, i + 200), { onConflict: 'feed_id' });
-        if (error) { console.error('[sync] upsert error:', error.message); break; }
-        inserted += Math.min(200, items.length - i);
+        const items = parseFeedItems(raw, feed.id, feed.name);
+        if (!items.length) {
+          console.log(`[sync] ${feed.name}: no items`);
+          continue;
+        }
+
+        let inserted = 0;
+        for (let i = 0; i < items.length; i += 200) {
+          const { error } = await supabase
+            .from('products')
+            .upsert(items.slice(i, i + 200), { onConflict: 'feed_id' });
+          if (error) { console.error('[sync] upsert error:', error.message); break; }
+          inserted += Math.min(200, items.length - i);
+        }
+        console.log(`[sync] ${feed.name}: ${inserted} inserted`);
+      } catch (err) {
+        console.error(`[sync] ${feed.name}:`, err.message);
       }
-      results.push({ feed: feed.name, inserted });
-    } catch (err) {
-      console.error(`[sync] ${feed.name}:`, err.message);
-      results.push({ feed: feed.name, inserted: 0, error: err.message });
     }
-  }
-
-  res.json({ ok: true, synced_at: new Date().toISOString(), results });
+    console.log('[sync] All feeds done.');
+  })();
 });
 
-// ─── DEBUG ───
+// ─── DEBUG — ελέγχει ένα feed URL ───
 app.get('/api/feed-debug', async (req, res) => {
   if (req.headers['x-sync-secret'] !== SYNC_SECRET) return res.status(401).end();
-  try {
-    const url = FEEDS[0].url;
-    console.log('[debug] Fetching:', url);
-    const raw = await fetchUrl(url);
-    res.json({ url, length: raw.length, preview: raw.slice(0, 2000) });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+
+  // Απάντα αμέσως, fetch γίνεται background
+  res.json({ ok: true, message: 'Fetching feed in background, check Render logs...' });
+
+  (async () => {
+    for (const feed of FEEDS) {
+      try {
+        console.log(`[debug] Fetching: ${feed.url}`);
+        const raw = await fetchUrl(feed.url);
+        console.log(`[debug] ${feed.name}: HTTP OK, length=${raw.length}, preview=${raw.slice(0, 200)}`);
+      } catch (err) {
+        console.error(`[debug] ${feed.name}:`, err.message);
+      }
+    }
+  })();
 });
 
 // ─── SEARCH ───
@@ -204,7 +231,7 @@ app.get('/api/categories', async (req, res) => {
     if (error) throw error;
     const counts = {};
     (data || []).forEach(r => { const c = (r.category || 'Άλλα').trim(); counts[c] = (counts[c] || 0) + 1; });
-    const cats = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([name, count]) => ({ name, count }));
+    const cats = Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0,20).map(([name,count]) => ({name,count}));
     res.json({ ok: true, categories: cats });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -241,7 +268,7 @@ app.get('/api/status', async (req, res) => {
 
 // ─── CRON 24h ───
 setInterval(async () => {
-  console.log('[cron] Auto-sync...');
+  console.log('[cron] Auto-sync starting...');
   for (const feed of FEEDS) {
     try {
       const raw = await fetchUrl(feed.url);
