@@ -22,30 +22,9 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 // Format proginc: programID-categoryID (categoryID=0 = όλες οι κατηγορίες)
 const FEEDS = [
   {
-    id: 'prog10784',
-    name: 'Lighthouse/Brands (Παιχνίδια & Βρεφικά)',
-    url: `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-${COLUMNS}/catinc-0/catex-0/proginc-10784-0/progex-0/feed.json`,
-  },
-  {
-    id: 'prog11307',
-    name: 'Lighthouse/Brands 2',
-    url: `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-${COLUMNS}/catinc-0/catex-0/proginc-11307-0/progex-0/feed.json`,
-  },
-  {
-    id: 'prog11428',
-    name: 'Mothercare',
-    url: `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-${COLUMNS}/catinc-0/catex-0/proginc-11428-0/progex-0/feed.json`,
-  },
-  {
-    id: 'prog11409',
-    name: 'Public',
-    url: `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-${COLUMNS}/catinc-0/catex-0/proginc-11409-0/progex-0/feed.json`,
-  },
-  // Fallback — όλα μαζί με το format του dashboard παραδείγματος
-  {
-    id: 'all_programs',
-    name: 'Όλα τα προγράμματα',
-    url: `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-${COLUMNS}/catinc-0/catex-0/proginc-10784-281,11307-622,11428-0,11409-0/progex-0/feed.json`,
+    id: 'main',
+    name: 'Παιδικά Προϊόντα',
+    url: `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-${COLUMNS}/catinc-0/catex-0/proginc-10784-281,11307-622/progex-0/feed.json`,
   },
 ];
 
