@@ -18,8 +18,26 @@ const COLUMNS       = 'product_name,category,brand_name,tracking_url,image_url,i
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// ─── FEEDS — ένα feed ανά κατάστημα/πρόγραμμα ───
-// Format proginc: programID-categoryID (categoryID=0 = όλες οι κατηγορίες)
+// ─── STORE MAPPING ───
+const STORE_MAP = {
+  'go':          'Μουστάκας',
+  'moustakas':   'Μουστάκας',
+  'lighthouse':  'Lighthouse',
+  'mothercare':  'Mothercare',
+  'public':      'Public',
+  'jumbo':       'Jumbo',
+  'babymarkt':   'BabyMarkt',
+  'plaisio':     'Plaisio',
+  'kotsovolos':  'Kotsovolos',
+};
+
+function mapStore(rawStore) {
+  if (!rawStore) return rawStore;
+  const key = rawStore.toLowerCase().trim();
+  return STORE_MAP[key] || rawStore;
+}
+
+// ─── FEEDS ───
 const FEEDS = [
   {
     id: 'main',
@@ -37,7 +55,7 @@ function fetchUrl(url) {
       timeout: 120000,
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; mikroutz/1.0)' },
     }, res => {
-      console.log(`[fetch] HTTP ${res.statusCode} <- ${url.slice(0, 120)}`);
+      console.log(`[fetch] HTTP ${res.statusCode} <- ${url.slice(0, 100)}`);
       res.on('data', chunk => chunks.push(chunk));
       res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     });
@@ -65,7 +83,7 @@ function parseFeedItems(rawText, feedId, feedName) {
 
   console.log(`[parse] ${feedName}: ${items.length} raw items`);
 
-  return items.slice(0, 5000).map((item, idx) => {
+  return items.map((item, idx) => {
     const title    = item.product_name || item.name || item.title || '';
     const link     = item.tracking_url || item.url || item.link || '';
     const image    = item.image_url || item.image || '';
@@ -74,11 +92,14 @@ function parseFeedItems(rawText, feedId, feedName) {
     const oldPrice = (discount && price && discount > 0)
       ? Math.round((price / (1 - discount / 100)) * 100) / 100
       : null;
-    const category = item.category || feedName;
+    const category = item.category
+      ? String(item.category).replace(/&gt;/g, '>').replace(/&amp;/g, '&').trim()
+      : feedName;
     const brand    = item.brand_name || item.brand || '';
-    const inStock  = item.in_stock === true || item.in_stock === 1
-                  || item.in_stock === '1' || item.in_stock === 'true'
-                  || item.in_stock === 'yes';
+    // in_stock: default true αν δεν υπάρχει τιμή
+    const inStock  = item.in_stock === false || item.in_stock === 0
+                  || item.in_stock === '0' || item.in_stock === 'false'
+                  || item.in_stock === 'no' ? false : true;
     const desc     = item.description || '';
 
     let store = item.store_name || item.merchant_name || '';
@@ -89,7 +110,7 @@ function parseFeedItems(rawText, feedId, feedName) {
         store = store.charAt(0).toUpperCase() + store.slice(1);
       } catch {}
     }
-    if (!store) store = feedName;
+    store = mapStore(store || feedName);
 
     return {
       feed_id:     `${feedId}_${idx}_${title.slice(0,15).replace(/\W/g,'')}`.slice(0, 200),
@@ -100,7 +121,7 @@ function parseFeedItems(rawText, feedId, feedName) {
       image_url:   String(image).trim().slice(0, 1000),
       product_url: String(link).trim().slice(0, 1000),
       store:       String(store).trim().slice(0, 200),
-      category:    String(category).trim().slice(0, 200),
+      category:    category.slice(0, 200),
       brand:       String(brand).trim().slice(0, 200),
       ean:         '',
       in_stock:    inStock,
@@ -109,13 +130,11 @@ function parseFeedItems(rawText, feedId, feedName) {
   }).filter(p => p.title && p.product_url);
 }
 
-// ─── SYNC ───
+// ─── SYNC (background) ───
 app.post('/api/sync', async (req, res) => {
   if (req.headers['x-sync-secret'] !== SYNC_SECRET) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-
-  // Απάντα αμέσως και τρέχε το sync background
   res.json({ ok: true, message: 'Sync started in background. Check /api/status for progress.' });
 
   (async () => {
@@ -123,17 +142,12 @@ app.post('/api/sync', async (req, res) => {
       try {
         console.log(`[sync] Fetching: ${feed.url}`);
         const raw = await fetchUrl(feed.url);
-
         if (!raw.trim().startsWith('[') && !raw.trim().startsWith('{')) {
-          console.error(`[sync] Bad response for ${feed.name}:`, raw.slice(0, 200));
+          console.error(`[sync] Bad response:`, raw.slice(0, 200));
           continue;
         }
-
         const items = parseFeedItems(raw, feed.id, feed.name);
-        if (!items.length) {
-          console.log(`[sync] ${feed.name}: no items`);
-          continue;
-        }
+        if (!items.length) { console.log(`[sync] ${feed.name}: no items`); continue; }
 
         let inserted = 0;
         for (let i = 0; i < items.length; i += 200) {
@@ -143,32 +157,12 @@ app.post('/api/sync', async (req, res) => {
           if (error) { console.error('[sync] upsert error:', error.message); break; }
           inserted += Math.min(200, items.length - i);
         }
-        console.log(`[sync] ${feed.name}: ${inserted} inserted`);
+        console.log(`[sync] ${feed.name}: ${inserted} upserted`);
       } catch (err) {
         console.error(`[sync] ${feed.name}:`, err.message);
       }
     }
     console.log('[sync] All feeds done.');
-  })();
-});
-
-// ─── DEBUG — ελέγχει ένα feed URL ───
-app.get('/api/feed-debug', async (req, res) => {
-  if (req.headers['x-sync-secret'] !== SYNC_SECRET) return res.status(401).end();
-
-  // Απάντα αμέσως, fetch γίνεται background
-  res.json({ ok: true, message: 'Fetching feed in background, check Render logs...' });
-
-  (async () => {
-    for (const feed of FEEDS) {
-      try {
-        console.log(`[debug] Fetching: ${feed.url}`);
-        const raw = await fetchUrl(feed.url);
-        console.log(`[debug] ${feed.name}: HTTP OK, length=${raw.length}, preview=${raw.slice(0, 200)}`);
-      } catch (err) {
-        console.error(`[debug] ${feed.name}:`, err.message);
-      }
-    }
   })();
 });
 
@@ -182,11 +176,15 @@ app.get('/api/search', async (req, res) => {
     let query = supabase
       .from('products')
       .select('id,title,price,old_price,image_url,product_url,store,category,brand,in_stock', { count: 'exact' })
-      .eq('in_stock', true)
       .not('price', 'is', null)
       .range(offset, offset + limit - 1);
 
-    if (q.trim()) query = query.textSearch('search_vector', q.trim(), { type: 'plain', config: 'simple' });
+    // Φιλτράρισμα in_stock — δείχνουμε και null (θεωρούνται διαθέσιμα)
+    query = query.or('in_stock.is.null,in_stock.eq.true');
+
+    if (q.trim()) {
+      query = query.textSearch('search_vector', q.trim(), { type: 'plain', config: 'simple' });
+    }
     if (cat) query = query.ilike('category', `%${cat}%`);
     if (min) query = query.gte('price', parseFloat(min));
     if (max) query = query.lte('price', parseFloat(max));
@@ -197,8 +195,16 @@ app.get('/api/search', async (req, res) => {
 
     const { data, error, count } = await query;
     if (error) throw error;
-    res.json({ ok: true, total: count, page: parseInt(page), results: data || [] });
+
+    // Apply store mapping στα αποτελέσματα
+    const results = (data || []).map(p => ({
+      ...p,
+      store: mapStore(p.store),
+    }));
+
+    res.json({ ok: true, total: count, page: parseInt(page), results });
   } catch (err) {
+    console.error('[search] Error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -206,10 +212,16 @@ app.get('/api/search', async (req, res) => {
 // ─── CATEGORIES ───
 app.get('/api/categories', async (req, res) => {
   try {
-    const { data, error } = await supabase.from('products').select('category').eq('in_stock', true).limit(5000);
+    const { data, error } = await supabase
+      .from('products')
+      .select('category')
+      .limit(5000);
     if (error) throw error;
     const counts = {};
-    (data || []).forEach(r => { const c = (r.category || 'Άλλα').trim(); counts[c] = (counts[c] || 0) + 1; });
+    (data || []).forEach(r => {
+      const c = (r.category || 'Άλλα').split('>')[0].trim(); // πρώτο επίπεδο κατηγορίας
+      counts[c] = (counts[c] || 0) + 1;
+    });
     const cats = Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0,20).map(([name,count]) => ({name,count}));
     res.json({ ok: true, categories: cats });
   } catch (err) {
