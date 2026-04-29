@@ -14,36 +14,104 @@ const SUPABASE_KEY  = process.env.SUPABASE_KEY;
 const SYNC_SECRET   = process.env.SYNC_SECRET || 'mikroutz-sync-2025';
 const PUBLISHER_ID  = 'CD28202';
 const LINKWISE_BASE = 'https://affiliate.linkwi.se/feeds/1.2';
-const COLUMNS       = 'product_name,category,brand_name,tracking_url,image_url,in_stock,on_sale,price,discount,size';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// ─── STORE MAPPING ───
-const STORE_MAP = {
-  'go':          'Μουστάκας',
-  'moustakas':   'Μουστάκας',
-  'lighthouse':  'Lighthouse',
-  'mothercare':  'Mothercare',
-  'public':      'Public',
-  'jumbo':       'Jumbo',
-  'babymarkt':   'BabyMarkt',
-  'plaisio':     'Plaisio',
-  'kotsovolos':  'Kotsovolos',
+// ─── STORE MAPPING — βάσει domain του tracking_url ───
+const DOMAIN_TO_STORE = {
+  'go.gr':          'Μουστάκας',
+  'moustakas':      'Μουστάκας',
+  'zackret':        'Zackret',
+  'babymarkt':      'BabyMarkt',
+  'mothercare':     'Mothercare',
+  'public':         'Public',
+  'jumbo':          'Jumbo',
+  'plaisio':        'Plaisio',
+  'kotsovolos':     'Kotsovolos',
+  'e-shop':         'e-shop.gr',
+  'eshop':          'e-shop.gr',
+  'babyhome':       'BabyHome',
+  'bebe':           'BebéStores',
+  'bebestores':     'BebéStores',
+  'ekosgr':         'Ekos',
+  'toysrus':        'Toys "R" Us',
+  'toyland':        'Toyland',
+  'funhouse':       'Funhouse',
+  'kidding':        'Kidding',
+  'myminiland':     'MyMiniland',
+  'houseofkids':    'House of Kids',
 };
 
-function mapStore(rawStore) {
-  if (!rawStore) return rawStore;
-  const key = rawStore.toLowerCase().trim();
-  return STORE_MAP[key] || rawStore;
+// Program ID → Store name (fallback αν δεν βρεθεί από URL)
+const PROGRAM_TO_STORE = {
+  '10784': 'Μουστάκας',
+  '11307': 'Μουστάκας',
+  '13208': 'Zackret',
+  '11562': 'BabyMarkt',
+  '12814': 'Mothercare',
+  '14015': 'Public',
+  '11036': 'Jumbo',
+  '12761': 'Plaisio',
+  '13506': 'BebéStores',
+  '10579': 'e-shop.gr',
+  '10632': 'Kotsovolos',
+  '14114': 'BabyHome',
+  '138':   'Funhouse',
+  '12174': 'Toyland',
+  '14123': 'House of Kids',
+  '12345': 'MyMiniland',
+  '385':   'Kidding',
+  '469':   'Ekos',
+  '13255': 'Toysrus',
+  '13884': 'Myminiland',
+  '399':   'e-shop.gr',
+  '11754': 'BebéStores',
+  '13604': 'Funhouse',
+};
+
+function resolveStore(url, fallback) {
+  if (url) {
+    try {
+      const hostname = new URL(url).hostname.toLowerCase().replace('www.', '');
+      for (const [key, name] of Object.entries(DOMAIN_TO_STORE)) {
+        if (hostname.includes(key)) return name;
+      }
+      // Fallback: capitalize domain
+      const domain = hostname.split('.')[0];
+      if (domain && domain !== 'affiliate' && domain !== 'linkwi') {
+        return domain.charAt(0).toUpperCase() + domain.slice(1);
+      }
+    } catch {}
+  }
+  return fallback || 'Κατάστημα';
 }
 
-// ─── FEEDS ───
+// ─── CATEGORY MAPPING ───
+// Linkwise catinc IDs → ελληνικά ονόματα
+const CATEGORY_MAP = {
+  '5':   'Παιχνίδια',
+  '27':  'Βρεφικά',
+  '45':  'Ρούχα',
+  '47':  'Παπούτσια',
+  '53':  'Σχολικά',
+  '59':  'Αθλητικά',
+  '65':  'Βιβλία',
+  '75':  'Ηλεκτρονικά',
+  '81':  'Τεχνολογία',
+  '103': 'Καλοκαιρινά',
+  '105': 'Καροτσάκια',
+  '107': 'Κρεβάτια & Έπιπλα',
+  '111': 'Τρόφιμα & Φαρμακείο',
+  '113': 'Ασφάλεια',
+  '115': 'Δώρα',
+  '117': 'Διάφορα',
+};
+
+// ─── FULL FEED URL ───
+const FULL_FEED_URL = `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-product_name,category,brand_name,tracking_url,thumb_url,in_stock,on_sale,price,discount,size/catinc-5,27,45,47,53,59,81,65,75,103,105,107,111,113,115,117/catex-0/proginc-13208-2081,11562-711,12814-2701,14015-2746,11036-369,12761-1652,13506-2267,10579-257,10632-237,14114-2761,138-2273,12174-1176,14123-2770,10784-281,12345-1289,385-251,469-2136,13255-2053,13884-2555,399-226,399-292,11307-622,11754-880,13604-2421/progex-0/feed.json`;
+
 const FEEDS = [
-  {
-    id: 'main',
-    name: 'Παιδικά Προϊόντα',
-    url: `${LINKWISE_BASE}/${PUBLISHER_ID}/programs-joined/columns-${COLUMNS}/catinc-0/catex-0/proginc-10784-281,11307-622/progex-0/feed.json`,
-  },
+  { id: 'main', name: 'Παιδικά Προϊόντα', url: FULL_FEED_URL },
 ];
 
 // ─── HELPERS ───
@@ -55,7 +123,7 @@ function fetchUrl(url) {
       timeout: 120000,
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; mikroutz/1.0)' },
     }, res => {
-      console.log(`[fetch] HTTP ${res.statusCode} <- ${url.slice(0, 100)}`);
+      console.log(`[fetch] HTTP ${res.statusCode}`);
       res.on('data', chunk => chunks.push(chunk));
       res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     });
@@ -70,9 +138,18 @@ function parsePrice(val) {
   return isNaN(n) ? null : n;
 }
 
-function parseFeedItems(rawText, feedId, feedName) {
-  console.log(`[parse] ${feedName} - Length: ${rawText.length}, Preview: ${rawText.slice(0, 150)}`);
+function cleanCategory(raw) {
+  if (!raw) return 'Άλλα';
+  return String(raw)
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&quot;/g, '"')
+    .trim();
+}
 
+function parseFeedItems(rawText, feedId, feedName) {
+  console.log(`[parse] Length: ${rawText.length}, Preview: ${rawText.slice(0, 150)}`);
   let data;
   try { data = JSON.parse(rawText); }
   catch (e) { console.error('[parse] JSON error:', e.message); return []; }
@@ -80,42 +157,29 @@ function parseFeedItems(rawText, feedId, feedName) {
   let items = Array.isArray(data) ? data
     : (data.products || data.items || data.data || data.feed || []);
   if (!Array.isArray(items)) items = [];
-
-  console.log(`[parse] ${feedName}: ${items.length} raw items`);
+  console.log(`[parse] ${items.length} raw items`);
 
   return items.map((item, idx) => {
     const title    = item.product_name || item.name || item.title || '';
     const link     = item.tracking_url || item.url || item.link || '';
-    const image    = item.image_url || item.image || '';
+    // thumb_url αντί image_url (νέο column στο feed)
+    const image    = item.thumb_url || item.image_url || item.image || '';
     const price    = parsePrice(item.price);
     const discount = parsePrice(item.discount);
     const oldPrice = (discount && price && discount > 0)
       ? Math.round((price / (1 - discount / 100)) * 100) / 100
       : null;
-    const category = item.category
-      ? String(item.category).replace(/&gt;/g, '>').replace(/&amp;/g, '&').trim()
-      : feedName;
+    const category = cleanCategory(item.category);
     const brand    = item.brand_name || item.brand || '';
-    // in_stock: default true αν δεν υπάρχει τιμή
-    const inStock  = item.in_stock === false || item.in_stock === 0
-                  || item.in_stock === '0' || item.in_stock === 'false'
-                  || item.in_stock === 'no' ? false : true;
-    const desc     = item.description || '';
-
-    let store = item.store_name || item.merchant_name || '';
-    if (!store && link) {
-      try {
-        const domain = new URL(link).hostname.replace('www.', '');
-        store = domain.split('.')[0];
-        store = store.charAt(0).toUpperCase() + store.slice(1);
-      } catch {}
-    }
-    store = mapStore(store || feedName);
+    const inStock  = !(item.in_stock === false || item.in_stock === 0
+                    || item.in_stock === '0' || item.in_stock === 'false'
+                    || item.in_stock === 'no');
+    const store    = resolveStore(link, item.store_name || item.merchant_name);
 
     return {
       feed_id:     `${feedId}_${idx}_${title.slice(0,15).replace(/\W/g,'')}`.slice(0, 200),
       title:       String(title).trim().slice(0, 500),
-      description: String(desc).replace(/<[^>]*>/g, '').trim().slice(0, 1000),
+      description: '',
       price,
       old_price:   oldPrice,
       image_url:   String(image).trim().slice(0, 1000),
@@ -130,7 +194,7 @@ function parseFeedItems(rawText, feedId, feedName) {
   }).filter(p => p.title && p.product_url);
 }
 
-// ─── SYNC (background) ───
+// ─── SYNC ───
 app.post('/api/sync', async (req, res) => {
   if (req.headers['x-sync-secret'] !== SYNC_SECRET) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -140,14 +204,14 @@ app.post('/api/sync', async (req, res) => {
   (async () => {
     for (const feed of FEEDS) {
       try {
-        console.log(`[sync] Fetching: ${feed.url}`);
+        console.log(`[sync] Fetching feed...`);
         const raw = await fetchUrl(feed.url);
         if (!raw.trim().startsWith('[') && !raw.trim().startsWith('{')) {
           console.error(`[sync] Bad response:`, raw.slice(0, 200));
           continue;
         }
         const items = parseFeedItems(raw, feed.id, feed.name);
-        if (!items.length) { console.log(`[sync] ${feed.name}: no items`); continue; }
+        if (!items.length) { console.log(`[sync] No items parsed`); continue; }
 
         let inserted = 0;
         for (let i = 0; i < items.length; i += 200) {
@@ -157,9 +221,9 @@ app.post('/api/sync', async (req, res) => {
           if (error) { console.error('[sync] upsert error:', error.message); break; }
           inserted += Math.min(200, items.length - i);
         }
-        console.log(`[sync] ${feed.name}: ${inserted} upserted`);
+        console.log(`[sync] Done: ${inserted} upserted out of ${items.length}`);
       } catch (err) {
-        console.error(`[sync] ${feed.name}:`, err.message);
+        console.error(`[sync] Error:`, err.message);
       }
     }
     console.log('[sync] All feeds done.');
@@ -177,10 +241,8 @@ app.get('/api/search', async (req, res) => {
       .from('products')
       .select('id,title,price,old_price,image_url,product_url,store,category,brand,in_stock', { count: 'exact' })
       .not('price', 'is', null)
+      .or('in_stock.is.null,in_stock.eq.true')
       .range(offset, offset + limit - 1);
-
-    // Φιλτράρισμα in_stock — δείχνουμε και null (θεωρούνται διαθέσιμα)
-    query = query.or('in_stock.is.null,in_stock.eq.true');
 
     if (q.trim()) {
       query = query.textSearch('search_vector', q.trim(), { type: 'plain', config: 'simple' });
@@ -196,10 +258,9 @@ app.get('/api/search', async (req, res) => {
     const { data, error, count } = await query;
     if (error) throw error;
 
-    // Apply store mapping στα αποτελέσματα
     const results = (data || []).map(p => ({
       ...p,
-      store: mapStore(p.store),
+      store: resolveStore(p.product_url, p.store),
     }));
 
     res.json({ ok: true, total: count, page: parseInt(page), results });
@@ -209,21 +270,29 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-// ─── CATEGORIES ───
+// ─── CATEGORIES endpoint — επιστρέφει τα tabs ───
 app.get('/api/categories', async (req, res) => {
+  // Επιστρέφει και τα hardcoded tabs βάσει catinc IDs
+  const tabs = Object.entries(CATEGORY_MAP).map(([id, name]) => ({ id, name }));
+
   try {
     const { data, error } = await supabase
       .from('products')
       .select('category')
       .limit(5000);
     if (error) throw error;
+
     const counts = {};
     (data || []).forEach(r => {
-      const c = (r.category || 'Άλλα').split('>')[0].trim(); // πρώτο επίπεδο κατηγορίας
+      const c = (r.category || 'Άλλα').split('>')[0].trim();
       counts[c] = (counts[c] || 0) + 1;
     });
-    const cats = Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0,20).map(([name,count]) => ({name,count}));
-    res.json({ ok: true, categories: cats });
+    const dbCats = Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([name, count]) => ({ name, count }));
+
+    res.json({ ok: true, tabs, categories: dbCats });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -259,18 +328,16 @@ app.get('/api/status', async (req, res) => {
 
 // ─── CRON 24h ───
 setInterval(async () => {
-  console.log('[cron] Auto-sync starting...');
-  for (const feed of FEEDS) {
-    try {
-      const raw = await fetchUrl(feed.url);
-      if (!raw.trim().startsWith('[') && !raw.trim().startsWith('{')) continue;
-      const items = parseFeedItems(raw, feed.id, feed.name);
-      for (let i = 0; i < items.length; i += 200) {
-        await supabase.from('products').upsert(items.slice(i, i + 200), { onConflict: 'feed_id' });
-      }
-      console.log(`[cron] ${feed.name}: ${items.length} synced`);
-    } catch (e) { console.error(`[cron] ${feed.name}:`, e.message); }
-  }
+  console.log('[cron] Auto-sync...');
+  try {
+    const raw = await fetchUrl(FEEDS[0].url);
+    if (!raw.trim().startsWith('[') && !raw.trim().startsWith('{')) return;
+    const items = parseFeedItems(raw, 'main', 'Παιδικά Προϊόντα');
+    for (let i = 0; i < items.length; i += 200) {
+      await supabase.from('products').upsert(items.slice(i, i + 200), { onConflict: 'feed_id' });
+    }
+    console.log(`[cron] ${items.length} synced`);
+  } catch (e) { console.error('[cron] Error:', e.message); }
 }, 24 * 60 * 60 * 1000);
 
 const PORT = process.env.PORT || 3000;
