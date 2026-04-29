@@ -261,9 +261,16 @@ app.get('/api/search', async (req, res) => {
       .range(offset, offset + limit - 1);
 
     if (q && q.trim()) {
-      query = query.textSearch('search_vector', q.trim(), { type: 'plain', config: 'simple' });
+      // Prefix search: κάθε λέξη γίνεται "λέξη:*" για να πιάνει παιχνίδι/παιχνίδια κλπ
+      const words = q.trim().split(/\s+/).filter(Boolean);
+      const tsQuery = words.map(w => w + ':*').join(' & ');
+      try {
+        query = query.textSearch('search_vector', tsQuery, { type: 'raw', config: 'simple' });
+      } catch(e) {
+        // fallback σε ilike αν το tsquery αποτύχει
+        query = query.ilike('title', `%${q.trim()}%`);
+      }
     }
-    // Category filter — χρησιμοποιεί το πρώτο μέρος της κατηγορίας (πριν το >)
     if (cat) query = query.ilike('category', `%${cat}%`);
     if (min) query = query.gte('price', parseFloat(min));
     if (max) query = query.lte('price', parseFloat(max));
