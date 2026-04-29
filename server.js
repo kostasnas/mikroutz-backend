@@ -284,6 +284,9 @@ app.get('/api/search', async (req, res) => {
       .not('category', 'ilike', '%Άνδρας%')
       .not('category', 'ilike', '%Είδη σπιτιού%')
       .not('category', 'ilike', '%Υφασμάτινα%')
+      .not('category', 'ilike', '%τακούνι%')
+      .not('category', 'ilike', '%πλατφόρμα%')
+      .not('category', 'ilike', '%Τσάντες%')
       .range(offset, offset + limit - 1);
 
     if (q && q.trim()) {
