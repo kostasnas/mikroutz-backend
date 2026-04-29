@@ -290,17 +290,17 @@ app.get('/api/search', async (req, res) => {
       .range(offset, offset + limit - 1);
 
     if (q && q.trim()) {
-      // Prefix search: κάθε λέξη γίνεται "λέξη:*" για να πιάνει παιχνίδι/παιχνίδια κλπ
+      // Prefix search: κάθε λέξη γίνεται "λέξη:*"
       const words = q.trim().split(/\s+/).filter(Boolean);
-      const tsQuery = words.map(w => w + ':*').join(' & ');
-      try {
+      const tsQuery = words.map(w => w.replace(/[^\w\u0370-\u03FF\u1F00-\u1FFF]/g, '') + ':*').join(' & ');
+      if (tsQuery.replace(/[: &*]/g,'').length > 0) {
         query = query.textSearch('search_vector', tsQuery, { type: 'raw', config: 'simple' });
-      } catch(e) {
-        // fallback σε ilike αν το tsquery αποτύχει
-        query = query.ilike('title', `%${q.trim()}%`);
       }
     }
-    if (cat) query = query.ilike('category', `%${cat}%`);
+    // Category filter — δουλεύει και χωρίς q
+    if (cat && cat.trim()) {
+      query = query.ilike('category', `%${cat.trim()}%`);
+    }
     if (min) query = query.gte('price', parseFloat(min));
     if (max) query = query.lte('price', parseFloat(max));
 
