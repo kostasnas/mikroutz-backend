@@ -91,13 +91,19 @@ const PROGRAM_TO_STORE = {
 function resolveStore(url, fallback) {
   if (url) {
     try {
-      const hostname = new URL(url).hostname.toLowerCase().replace('www.', '');
+      // Αν είναι Linkwise redirect URL, εξαγάγουμε το πραγματικό domain από το lnkurl param
+      let checkUrl = url;
+      if (url.includes('linkwi.se') || url.includes('go.linkwi')) {
+        const match = url.match(/[?&]lnkurl=([^&]+)/);
+        if (match) checkUrl = decodeURIComponent(match[1]);
+      }
+      const hostname = new URL(checkUrl).hostname.toLowerCase().replace('www.', '');
       for (const [key, name] of Object.entries(DOMAIN_TO_STORE)) {
         if (hostname.includes(key)) return name;
       }
       // Fallback: capitalize domain
       const domain = hostname.split('.')[0];
-      if (domain && domain !== 'affiliate' && domain !== 'linkwi') {
+      if (domain && domain !== 'affiliate' && domain !== 'linkwi' && domain !== 'go') {
         return domain.charAt(0).toUpperCase() + domain.slice(1);
       }
     } catch {}
@@ -287,6 +293,7 @@ app.get('/api/search', async (req, res) => {
       .not('category', 'ilike', '%τακούνι%')
       .not('category', 'ilike', '%πλατφόρμα%')
       .not('category', 'ilike', '%Τσάντες%')
+      .not('category', 'ilike', 'Σπίτι%')
       .range(offset, offset + limit - 1);
 
     if (q && q.trim()) {
