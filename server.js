@@ -115,19 +115,35 @@ const FEEDS = [
 ];
 
 // ─── HELPERS ───
+const MAX_FEED_BYTES = 8 * 1024 * 1024; // 8MB limit — προστατεύει από OOM
+
 function fetchUrl(url) {
   return new Promise((resolve, reject) => {
     const lib = url.startsWith('https') ? https : http;
     const chunks = [];
+    let totalBytes = 0;
     const req = lib.get(url, {
       timeout: 120000,
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; mikroutz/1.0)' },
     }, res => {
       console.log(`[fetch] HTTP ${res.statusCode}`);
-      res.on('data', chunk => chunks.push(chunk));
+      res.on('data', chunk => {
+        totalBytes += chunk.length;
+        if (totalBytes > MAX_FEED_BYTES) {
+          console.log(`[fetch] Byte limit reached (${(totalBytes/1024/1024).toFixed(1)}MB), stopping`);
+          req.destroy();
+          // Επιστρέφουμε ό,τι έχουμε μέχρι τώρα — κόβουμε στο τελευταίο }
+          const partial = Buffer.concat(chunks).toString('utf8');
+          const lastBracket = partial.lastIndexOf('},');
+          const fixed = lastBracket > 0 ? partial.slice(0, lastBracket) + '}]' : '[]';
+          resolve(fixed);
+          return;
+        }
+        chunks.push(chunk);
+      });
       res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     });
-    req.on('error', reject);
+    req.on('error', (e) => { if (!e.message.includes('socket hang')) reject(e); });
     req.on('timeout', () => { req.destroy(); reject(new Error('Timeout after 120s')); });
   });
 }
@@ -244,9 +260,10 @@ app.get('/api/search', async (req, res) => {
       .or('in_stock.is.null,in_stock.eq.true')
       .range(offset, offset + limit - 1);
 
-    if (q.trim()) {
+    if (q && q.trim()) {
       query = query.textSearch('search_vector', q.trim(), { type: 'plain', config: 'simple' });
     }
+    // Category filter — χρησιμοποιεί το πρώτο μέρος της κατηγορίας (πριν το >)
     if (cat) query = query.ilike('category', `%${cat}%`);
     if (min) query = query.gte('price', parseFloat(min));
     if (max) query = query.lte('price', parseFloat(max));
