@@ -19,27 +19,46 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ─── STORE MAPPING — βάσει domain του tracking_url ───
 const DOMAIN_TO_STORE = {
-  'go.gr':          'Μουστάκας',
-  'moustakas':      'Μουστάκας',
-  'zackret':        'Zackret',
-  'babymarkt':      'BabyMarkt',
-  'mothercare':     'Mothercare',
-  'public':         'Public',
-  'jumbo':          'Jumbo',
-  'plaisio':        'Plaisio',
-  'kotsovolos':     'Kotsovolos',
-  'e-shop':         'e-shop.gr',
-  'eshop':          'e-shop.gr',
-  'babyhome':       'BabyHome',
-  'bebe':           'BebéStores',
-  'bebestores':     'BebéStores',
-  'ekosgr':         'Ekos',
-  'toysrus':        'Toys "R" Us',
-  'toyland':        'Toyland',
-  'funhouse':       'Funhouse',
-  'kidding':        'Kidding',
-  'myminiland':     'MyMiniland',
-  'houseofkids':    'House of Kids',
+  'go.gr':           'Μουστάκας',
+  'moustakas':       'Μουστάκας',
+  'zackret':         'Zackret',
+  'babymarkt':       'BabyMarkt',
+  'mothercare':      'Mothercare',
+  'public':          'Public',
+  'jumbo':           'Jumbo',
+  'plaisio':         'Plaisio',
+  'kotsovolos':      'Kotsovolos',
+  'e-shop':          'e-shop.gr',
+  'eshop':           'e-shop.gr',
+  'babyhome':        'BabyHome',
+  'bebe':            'BebéStores',
+  'bebestores':      'BebéStores',
+  'funhouse':        'Funhouse',
+  'toyland':         'Toyland',
+  'kidding':         'Kidding',
+  'myminiland':      'MyMiniland',
+  'houseofkids':     'House of Kids',
+  'mykingdom':       'My Kingdom',
+  'babyland':        'Babyland',
+  'poulain':         'Poulain',
+  'dpam':            'Du Pareil',
+  'mayoral':         'Mayoral',
+  'energiers':       'Energiers',
+  'jakoo':           'Jakoo',
+  'babyglory':       'BabyGlory',
+  'nuk':             'NUK',
+  'chicco':          'Chicco',
+  'hauck':           'Hauck',
+  'cybex':           'Cybex',
+  'joie':            'Joie',
+  'inglesina':       'Inglesina',
+  'kinderkraft':     'Kinderkraft',
+  'graco':           'Graco',
+  'peg-perego':      'Peg Perego',
+  'fisher-price':    'Fisher-Price',
+  'vtech':           'VTech',
+  'lego':            'LEGO',
+  'playmobil':       'Playmobil',
 };
 
 // Program ID → Store name (fallback αν δεν βρεθεί από URL)
@@ -253,11 +272,18 @@ app.get('/api/search', async (req, res) => {
   const offset = (parseInt(page) - 1) * limit;
 
   try {
+    // Κατηγορίες ενηλίκων που εξαιρούνται
+    const ADULT_CATS = ['Γυναίκα', 'Άνδρας', 'Σπίτι', 'Είδη σπιτιού', 'Τσάντες', 'Υφασμάτινα', 'Ένδυση - Αξεσουάρ'];
+
     let query = supabase
       .from('products')
       .select('id,title,price,old_price,image_url,product_url,store,category,brand,in_stock', { count: 'exact' })
       .not('price', 'is', null)
       .or('in_stock.is.null,in_stock.eq.true')
+      .not('category', 'ilike', '%Γυναίκα%')
+      .not('category', 'ilike', '%Άνδρας%')
+      .not('category', 'ilike', '%Είδη σπιτιού%')
+      .not('category', 'ilike', '%Υφασμάτινα%')
       .range(offset, offset + limit - 1);
 
     if (q && q.trim()) {
@@ -326,20 +352,44 @@ app.get('/api/categories', async (req, res) => {
 app.post('/api/chat', async (req, res) => {
   const { messages = [], profileContext = '' } = req.body;
   const ANTHROPIC_KEY = process.env.ANTHROPIC_KEY;
-  if (!ANTHROPIC_KEY) return res.status(500).json({ error: 'No Anthropic key' });
+  if (!ANTHROPIC_KEY) {
+    console.error('[chat] No ANTHROPIC_KEY set in environment!');
+    return res.status(500).json({ error: 'No Anthropic key configured' });
+  }
   try {
+    // Φιλτράρουμε μόνο user/assistant roles
+    const cleanMessages = (messages || [])
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .slice(-10);
+
+    if (!cleanMessages.length || cleanMessages[cleanMessages.length-1].role !== 'user') {
+      return res.status(400).json({ error: 'Last message must be from user' });
+    }
+
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+      },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001', max_tokens: 400,
-        system: `Βοηθός Γονέα του μικρoutz, παιδικά προϊόντα 0-13 ετών. ${profileContext} Απάντα ελληνικά, 2-4 προτάσεις, λίγα emoji.`,
-        messages: messages.slice(-10),
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 400,
+        system: `Είσαι ο Βοηθός Γονέα του mikroutz.gr, ελληνική πλατφόρμα παιδικών προϊόντων για ηλικίες 0-13 ετών. ${profileContext} Βοηθάς γονείς να βρουν κατάλληλα προϊόντα, δίνεις συμβουλές για μεγέθη ρούχων/παπουτσιών, και προτείνεις δώρα. Απάντα πάντα στα ελληνικά, σε 2-4 προτάσεις, με λίγα σχετικά emoji.`,
+        messages: cleanMessages,
       }),
     });
     const d = await r.json();
-    res.json({ ok: true, reply: d.content?.[0]?.text || 'Δοκίμασε ξανά!' });
+    console.log('[chat] Anthropic response type:', d.type, 'stop_reason:', d.stop_reason);
+    if (d.error) {
+      console.error('[chat] Anthropic error:', d.error);
+      return res.status(500).json({ ok: false, error: d.error.message });
+    }
+    const reply = d.content?.[0]?.text || 'Δοκίμασε ξανά!';
+    res.json({ ok: true, reply });
   } catch (err) {
+    console.error('[chat] Error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
